@@ -335,7 +335,10 @@ extension NIOBSDSocket {
         var dwNumberOfBytesRecvd: DWORD = 0
         // FIXME(compnerd) is the socket guaranteed to not be overlapped?
         if WSARecvMsg(s, lpMsg, &dwNumberOfBytesRecvd, nil, nil) == SOCKET_ERROR {
-            throw IOError(winsock: WSAGetLastError(), reason: "recvmsg")
+            let lastError = WSAGetLastError()
+            // WSAEWOULDBLOCK: no data available yet — normal for non-blocking sockets.
+            if lastError == WSAEWOULDBLOCK { return .wouldBlock(0) }
+            throw IOError(winsock: lastError, reason: "recvmsg")
         }
         return .processed(size_t(dwNumberOfBytesRecvd))
     }
@@ -382,7 +385,10 @@ extension NIOBSDSocket {
             nil,
             nil
         ) == SOCKET_ERROR {
-            throw IOError(winsock: WSAGetLastError(), reason: "sendmsg")
+            let lastError = WSAGetLastError()
+            // WSAEWOULDBLOCK: send buffer full — non-blocking socket can't send right now.
+            if lastError == WSAEWOULDBLOCK { return .wouldBlock(0) }
+            throw IOError(winsock: lastError, reason: "sendmsg")
         }
         return .processed(size_t(NumberOfBytesSent))
     }
@@ -463,7 +469,13 @@ extension NIOBSDSocket {
     )
         throws -> IOResult<Int>
     {
-        .processed(Int(CNIOWindows_recvmmsg(socket, msgvec, vlen, flags, timeout)))
+        let result = CNIOWindows_recvmmsg(socket, msgvec, vlen, flags, timeout)
+        if result == SOCKET_ERROR {
+            let lastError = WSAGetLastError()
+            if lastError == WSAEWOULDBLOCK { return .wouldBlock(0) }
+            throw IOError(winsock: lastError, reason: "recvmmsg")
+        }
+        return .processed(Int(result))
     }
 
     @inline(never)
@@ -475,7 +487,13 @@ extension NIOBSDSocket {
     )
         throws -> IOResult<Int>
     {
-        .processed(Int(CNIOWindows_sendmmsg(socket, msgvec, vlen, flags)))
+        let result = CNIOWindows_sendmmsg(socket, msgvec, vlen, flags)
+        if result == SOCKET_ERROR {
+            let lastError = WSAGetLastError()
+            if lastError == WSAEWOULDBLOCK { return .wouldBlock(0) }
+            throw IOError(winsock: lastError, reason: "sendmmsg")
+        }
+        return .processed(Int(result))
     }
 
     // NOTE: this should return a `ssize_t`, however, that is not a standard

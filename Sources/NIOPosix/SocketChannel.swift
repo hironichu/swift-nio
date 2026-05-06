@@ -25,6 +25,7 @@ import let WinSDK.ENFILE
 import let WinSDK.ENOBUFS
 import let WinSDK.ENOMEM
 import let WinSDK.INADDR_ANY
+import let WinSDK.WSAECONNRESET
 
 import struct WinSDK.ip_mreq
 import struct WinSDK.ipv6_mreq
@@ -909,6 +910,11 @@ final class DatagramChannel: BaseSocketChannel<Socket>, @unchecked Sendable {
         case .errno(let code):
             return self.shouldCloseOnErrnoCode(code)
         #if os(Windows)
+        case .winsock(let code):
+            // WSAECONNRESET (10054): Windows delivers ICMP "port unreachable" errors via
+            // recvmsg/recvfrom on unconnected UDP sockets. This is non-fatal and equivalent
+            // to ECONNREFUSED on Linux — the datagram channel should stay open.
+            return code != WSAECONNRESET
         default:
             return true
         #endif
